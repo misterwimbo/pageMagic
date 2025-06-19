@@ -1,4 +1,4 @@
-import { anthropicService } from './api.js';
+import { getAIService } from './api.js';
 
 interface PromptHistoryItem {
   id: string;
@@ -10,17 +10,19 @@ interface PromptHistoryItem {
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Check for API key first
-  const result = await chrome.storage.sync.get(['anthropicApiKey']);
-  if (!result.anthropicApiKey) {
+  const result = await chrome.storage.sync.get(['apiProvider','anthropicApiKey','openaiApiKey']);
+  const provider = result.apiProvider || 'anthropic';
+  const apiKey = provider === 'openai' ? result.openaiApiKey : result.anthropicApiKey;
+  if (!apiKey) {
     // Show "no API key" message instead of regular UI
     document.body.innerHTML = `
       <div style="padding: 20px; text-align: center;">
         <h3 style="margin: 0 0 10px 0; color: #333;">No API key set</h3>
-        <p style="margin: 0 0 15px 0; color: #666; font-size: 14px;">Go to settings to set your Anthropic API key.</p>
+        <p style="margin: 0 0 15px 0; color: #666; font-size: 14px;">Go to settings to set your API key.</p>
         <button id="open-settings" style="
-          background: #007bff; 
-          color: white; 
-          border: none; 
+          background: #007bff;
+          color: white;
+          border: none;
           padding: 8px 16px; 
           border-radius: 4px; 
           cursor: pointer; 
@@ -49,7 +51,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const domainWideCheckbox = document.getElementById('domain-wide') as HTMLInputElement;
   const disableAllButton = document.getElementById('disable-all') as HTMLButtonElement;
   const removeAllButton = document.getElementById('remove-all') as HTMLButtonElement;
-  
+
+  const aiService = await getAIService();
+
   let currentFileId: string | null = null;
   let currentTabId: number | null = null;
   
@@ -387,7 +391,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function cleanup() {
     if (currentFileId) {
       try {
-        await anthropicService.deleteFile(currentFileId);
+        await aiService.deleteFile(currentFileId);
       } catch (error) {
         console.warn('Failed to delete uploaded file:', error);
       }
@@ -493,23 +497,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         showStatus('Uploading page content...', 'loading');
         
         // Initialize API service
-        const initialized = await anthropicService.initialize();
+        const initialized = await aiService.initialize();
         if (!initialized) {
           throw new Error('API not configured. Please check settings.');
         }
 
         // Clean up previous file if exists
         if (currentFileId) {
-          await anthropicService.deleteFile(currentFileId);
+          await aiService.deleteFile(currentFileId);
         }
 
         // Upload HTML to Files API
-        const uploadResponse = await anthropicService.uploadHTML(htmlResponse.html);
+        const uploadResponse = await aiService.uploadHTML(htmlResponse.html);
         currentFileId = uploadResponse.fileId;
         currentTabId = tab.id!;
       } else {
         // Initialize API service for subsequent requests
-        const initialized = await anthropicService.initialize();
+        const initialized = await aiService.initialize();
         if (!initialized) {
           throw new Error('API not configured. Please check settings.');
         }
@@ -520,7 +524,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Generate CSS using file ID
       let cssResponse;
       try {
-        cssResponse = await anthropicService.generateCSS({
+        cssResponse = await aiService.generateCSS({
           fileId: currentFileId,
           prompt: prompt
         });
@@ -540,14 +544,14 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
           
           // Upload HTML to Files API
-          const uploadResponse = await anthropicService.uploadHTML(htmlResponse.html);
+          const uploadResponse = await aiService.uploadHTML(htmlResponse.html);
           currentFileId = uploadResponse.fileId;
           currentTabId = tab.id!;
           
           showStatus('Generating CSS...', 'loading');
           
           // Retry CSS generation
-          cssResponse = await anthropicService.generateCSS({
+          cssResponse = await aiService.generateCSS({
             fileId: currentFileId,
             prompt: prompt
           });
