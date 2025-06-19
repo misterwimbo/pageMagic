@@ -45,6 +45,28 @@ document.addEventListener('DOMContentLoaded', async () => {
       apiKeyHelp.innerHTML = 'Get your API key from <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com/settings/keys</a>';
     }
   }
+  let currentSettings = { ...result, apiProvider: provider };
+
+  function updateProviderUI() {
+    if (providerSelect.value === 'openai') {
+      apiKeyLabel.textContent = 'OpenAI API Key:';
+      apiKeyInput.placeholder = 'sk-...';
+      apiKeyHelp.innerHTML = 'Get your API key from <a href="https://platform.openai.com/account/api-keys" target="_blank">platform.openai.com/account/api-keys</a>';
+    } else {
+      apiKeyLabel.textContent = 'Anthropic API Key:';
+      apiKeyInput.placeholder = 'sk-ant-api03-...';
+      apiKeyHelp.innerHTML = 'Get your API key from <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com/settings/keys</a>';
+    }
+  }
+
+  updateProviderUI();
+
+  providerSelect.addEventListener('change', async () => {
+    await chrome.storage.sync.set({ apiProvider: providerSelect.value });
+    currentSettings.apiProvider = providerSelect.value;
+    updateProviderUI();
+    await loadModels();
+  });
 
   updateProviderUI();
 
@@ -63,25 +85,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (initialized) {
         const models = await aiService.getAvailableModels();
-          populateModelSelect(models);
+        populateModelSelect(models);
 
-          // Store model lookup table for usage display
-          const modelLookup: Record<string, string> = {};
-          models.forEach(model => {
-            modelLookup[model.id] = model.display_name;
-          });
-          await chrome.storage.local.set({ pagemagic_model_lookup: modelLookup });
-          result[keyField] = currentKey;
-          result.apiProvider = providerVal;
+        // Store model lookup table for usage display
+        const modelLookup: Record<string, string> = {};
+        models.forEach(model => {
+          modelLookup[model.id] = model.display_name;
+        });
+        await chrome.storage.local.set({ pagemagic_model_lookup: modelLookup });
 
-          // Set selected model
-          if (result.selectedModel) {
-            modelSelect.value = result.selectedModel;
-          } else if (models.length > 0) {
-            modelSelect.value = models[0].id; // Default to first available model
-          }
-          modelSelect.disabled = false;
-          testBtn.disabled = false;
+        // Set selected model
+        if (result.selectedModel) {
+          modelSelect.value = result.selectedModel;
+        } else if (models.length > 0) {
+          modelSelect.value = models[0].id; // Default to first available model
+        }
+        modelSelect.disabled = false;
+        testBtn.disabled = false;
         return;
       }
 
