@@ -1,8 +1,11 @@
-import { anthropicService } from './api.js';
+import { getAIService } from './api.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
   const apiKeyInput = document.getElementById('api-key') as HTMLInputElement;
   const modelSelect = document.getElementById('model-select') as HTMLSelectElement;
+  const providerSelect = document.getElementById('provider-select') as HTMLSelectElement;
+  const apiKeyLabel = document.getElementById('api-key-label') as HTMLLabelElement;
+  const apiKeyHelp = document.getElementById('api-key-help') as HTMLDivElement;
   const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
   const testBtn = document.getElementById('test-btn') as HTMLButtonElement;
   const clearAllBtn = document.getElementById('clear-all-btn') as HTMLButtonElement;
@@ -22,45 +25,68 @@ document.addEventListener('DOMContentLoaded', async () => {
   const customizedSitesList = document.getElementById('customized-sites-list') as HTMLDivElement;
 
   // Load existing settings
-  const result = await chrome.storage.sync.get(['anthropicApiKey', 'selectedModel']);
-  if (result.anthropicApiKey) {
-    apiKeyInput.value = result.anthropicApiKey;
+  const result = await chrome.storage.sync.get(['apiProvider','anthropicApiKey','openaiApiKey','selectedModel']);
+  const provider = result.apiProvider || 'anthropic';
+  providerSelect.value = provider;
+  const apiKey = provider === 'openai' ? result.openaiApiKey : result.anthropicApiKey;
+  if (apiKey) {
+    apiKeyInput.value = apiKey;
   }
+  let currentSettings = { ...result, apiProvider: provider };
+
+  function updateProviderUI() {
+    if (providerSelect.value === 'openai') {
+      apiKeyLabel.textContent = 'OpenAI API Key:';
+      apiKeyInput.placeholder = 'sk-...';
+      apiKeyHelp.innerHTML = 'Get your API key from <a href="https://platform.openai.com/account/api-keys" target="_blank">platform.openai.com/account/api-keys</a>';
+    } else {
+      apiKeyLabel.textContent = 'Anthropic API Key:';
+      apiKeyInput.placeholder = 'sk-ant-api03-...';
+      apiKeyHelp.innerHTML = 'Get your API key from <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com/settings/keys</a>';
+    }
+  }
+
+  updateProviderUI();
+
+  providerSelect.addEventListener('change', async () => {
+    await chrome.storage.sync.set({ apiProvider: providerSelect.value });
+    currentSettings.apiProvider = providerSelect.value;
+    updateProviderUI();
+    await loadModels();
+  });
 
   // Load available models
   async function loadModels() {
     try {
-      if (result.anthropicApiKey) {
-        // Initialize service to fetch models
-        await chrome.storage.sync.set({ anthropicApiKey: result.anthropicApiKey });
-        const initialized = await anthropicService.initialize();
-        
-        if (initialized) {
-          const models = await anthropicService.getAvailableModels();
-          populateModelSelect(models);
-          
-          // Store model lookup table for usage display
-          const modelLookup: Record<string, string> = {};
-          models.forEach(model => {
-            modelLookup[model.id] = model.display_name;
-          });
-          await chrome.storage.local.set({ pagemagic_model_lookup: modelLookup });
-          
-          // Set selected model
-          if (result.selectedModel) {
-            modelSelect.value = result.selectedModel;
-          } else if (models.length > 0) {
-            modelSelect.value = models[0].id; // Default to first available model
-          }
-          modelSelect.disabled = false;
-          testBtn.disabled = false;
+      const aiService = await getAIService();
+      const initialized = await aiService.initialize();
+
+      if (initialized) {
+        const models = await aiService.getAvailableModels();
+        populateModelSelect(models);
+
+        // Store model lookup table for usage display
+        const modelLookup: Record<string, string> = {};
+        models.forEach(model => {
+          modelLookup[model.id] = model.display_name;
+        });
+        await chrome.storage.local.set({ pagemagic_model_lookup: modelLookup });
+
+        // Set selected model
+        if (result.selectedModel) {
+          modelSelect.value = result.selectedModel;
+        } else if (models.length > 0) {
+          modelSelect.value = models[0].id; // Default to first available model
         }
-      } else {
-        // No API key set
-        modelSelect.innerHTML = '<option value="">No API Key found</option>';
-        modelSelect.disabled = true;
-        testBtn.disabled = true;
+        modelSelect.disabled = false;
+        testBtn.disabled = false;
+        return;
       }
+
+      // No API key set
+      modelSelect.innerHTML = '<option value="">No API Key found</option>';
+      modelSelect.disabled = true;
+      testBtn.disabled = true;
     } catch (error) {
       console.warn('Failed to load models:', error);
       modelSelect.innerHTML = '<option value="">Failed to load models</option>';
@@ -94,25 +120,30 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Reload models when API key changes
   apiKeyInput.addEventListener('input', async () => {
     const currentKey = apiKeyInput.value.trim();
-    if (currentKey && currentKey.startsWith('sk-ant-') && currentKey !== result.anthropicApiKey) {
+    const providerVal = providerSelect.value;
+    const keyField = providerVal === 'openai' ? 'openaiApiKey' : 'anthropicApiKey';
+    if (currentKey && currentKey !== result[keyField]) {
       modelSelect.innerHTML = '<option value="">Loading models...</option>';
       modelSelect.disabled = true;
-      
+
       try {
-        await chrome.storage.sync.set({ anthropicApiKey: currentKey });
-        const initialized = await anthropicService.initialize();
-        
+        await chrome.storage.sync.set({ [keyField]: currentKey, apiProvider: providerVal });
+        currentSettings[keyField] = currentKey;
+        currentSettings.apiProvider = providerVal;
+        const aiService = await getAIService();
+        const initialized = await aiService.initialize();
+
         if (initialized) {
-          const models = await anthropicService.getAvailableModels();
+          const models = await aiService.getAvailableModels();
           populateModelSelect(models);
-          
+
           // Store model lookup table
           const modelLookup: Record<string, string> = {};
           models.forEach(model => {
             modelLookup[model.id] = model.display_name;
           });
           await chrome.storage.local.set({ pagemagic_model_lookup: modelLookup });
-          
+
           // Reset to first available model
           if (models.length > 0) {
             modelSelect.value = models[0].id;
@@ -132,8 +163,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Load and display usage information
   async function loadUsageInfo() {
     try {
-      const totalUsage = await anthropicService.getTotalUsage();
-      const dailyUsage = await anthropicService.getDailyUsage();
+      const aiService = await getAIService();
+      const totalUsage = await aiService.getTotalUsage();
+      const dailyUsage = await aiService.getDailyUsage();
       
       dailyUsageCost.textContent = `$${dailyUsage.totalCost.toFixed(4)}`;
       dailyUsageRequests.textContent = `${dailyUsage.requests} requests`;
@@ -483,13 +515,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   saveBtn.addEventListener('click', async () => {
     const apiKey = apiKeyInput.value.trim();
     const selectedModel = modelSelect.value;
-    
+    const providerVal = providerSelect.value;
+    const keyField = providerVal === 'openai' ? 'openaiApiKey' : 'anthropicApiKey';
+
     if (!apiKey) {
       showStatus('Please enter an API key', 'error');
       return;
     }
 
-    if (!apiKey.startsWith('sk-ant-')) {
+    if (providerVal === 'anthropic' && !apiKey.startsWith('sk-ant-')) {
       showStatus('API key should start with sk-ant-', 'error');
       return;
     }
@@ -500,10 +534,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     try {
-      await chrome.storage.sync.set({ 
-        anthropicApiKey: apiKey,
-        selectedModel: selectedModel
+      await chrome.storage.sync.set({
+        [keyField]: apiKey,
+        selectedModel: selectedModel,
+        apiProvider: providerVal
       });
+      currentSettings[keyField] = apiKey;
+      currentSettings.selectedModel = selectedModel;
+      currentSettings.apiProvider = providerVal;
+      result[keyField] = apiKey;
+      result.selectedModel = selectedModel;
+      result.apiProvider = providerVal;
       showStatus('Settings saved successfully!', 'success');
     } catch (error) {
       showStatus('Failed to save settings', 'error');
@@ -513,9 +554,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   testBtn.addEventListener('click', async () => {
     const apiKey = apiKeyInput.value.trim();
     const selectedModel = modelSelect.value;
+    const providerVal = providerSelect.value;
+    const keyField = providerVal === 'openai' ? 'openaiApiKey' : 'anthropicApiKey';
     
     if (!apiKey) {
       showStatus('Please enter an API key first', 'error');
+      return;
+    }
+
+    if (providerVal === 'anthropic' && !apiKey.startsWith('sk-ant-')) {
+      showStatus('API key should start with sk-ant-', 'error');
       return;
     }
 
@@ -529,28 +577,31 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     try {
       // Save key and model temporarily for test
-      await chrome.storage.sync.set({ 
-        anthropicApiKey: apiKey,
-        selectedModel: selectedModel
-      });
-      
+      const providerVal = providerSelect.value;
+      const keyField = providerVal === 'openai' ? 'openaiApiKey' : 'anthropicApiKey';
+      await chrome.storage.sync.set({ [keyField]: apiKey, selectedModel: selectedModel, apiProvider: providerVal });
+      currentSettings[keyField] = apiKey;
+      currentSettings.selectedModel = selectedModel;
+      currentSettings.apiProvider = providerVal;
+
       // Initialize service and test
-      const initialized = await anthropicService.initialize();
+      const aiService = await getAIService();
+      const initialized = await aiService.initialize();
       if (!initialized) {
         throw new Error('Failed to initialize service');
       }
 
       // Upload test HTML first
-      const uploadResponse = await anthropicService.uploadHTML('<body><p>Test</p></body>');
-      
+      const uploadResponse = await aiService.uploadHTML('<body><p>Test</p></body>');
+
       // Test CSS generation
-      const response = await anthropicService.generateCSS({
+      const response = await aiService.generateCSS({
         fileId: uploadResponse.fileId,
         prompt: 'make text red'
       });
-      
+
       // Clean up test file
-      await anthropicService.deleteFile(uploadResponse.fileId);
+      await aiService.deleteFile(uploadResponse.fileId);
 
       if (response.css) {
         showStatus('Connection successful!', 'success');
