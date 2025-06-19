@@ -45,6 +45,28 @@ document.addEventListener('DOMContentLoaded', async () => {
       apiKeyHelp.innerHTML = 'Get your API key from <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com/settings/keys</a>';
     }
   }
+  let currentSettings = { ...result, apiProvider: provider };
+
+  function updateProviderUI() {
+    if (providerSelect.value === 'openai') {
+      apiKeyLabel.textContent = 'OpenAI API Key:';
+      apiKeyInput.placeholder = 'sk-...';
+      apiKeyHelp.innerHTML = 'Get your API key from <a href="https://platform.openai.com/account/api-keys" target="_blank">platform.openai.com/account/api-keys</a>';
+    } else {
+      apiKeyLabel.textContent = 'Anthropic API Key:';
+      apiKeyInput.placeholder = 'sk-ant-api03-...';
+      apiKeyHelp.innerHTML = 'Get your API key from <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com/settings/keys</a>';
+    }
+  }
+
+  updateProviderUI();
+
+  providerSelect.addEventListener('change', async () => {
+    await chrome.storage.sync.set({ apiProvider: providerSelect.value });
+    currentSettings.apiProvider = providerSelect.value;
+    updateProviderUI();
+    await loadModels();
+  });
 
   updateProviderUI();
 
