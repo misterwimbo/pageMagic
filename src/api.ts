@@ -1,5 +1,15 @@
 import Anthropic from '@anthropic-ai/sdk';
 
+interface AIService {
+  initialize(): Promise<boolean>;
+  uploadHTML(html: string): Promise<FileUploadResponse>;
+  generateCSS(request: CSSGenerationRequest): Promise<CSSGenerationResponse>;
+  getAvailableModels(): Promise<Model[]>;
+  deleteFile(fileId: string): Promise<void>;
+  getTotalUsage(): Promise<{ totalCost: number; totalRequests: number; models: any }>;
+  getDailyUsage(date?: string): Promise<any>;
+}
+
 interface CSSGenerationRequest {
   fileId: string;
   prompt: string;
@@ -80,12 +90,34 @@ const MODEL_PRICING: Record<string, {
     cache_1h: 30, 
     cache_hits: 1.50 
   },
-  'claude-3-haiku-20240307': { 
-    input: 0.25, 
-    output: 1.25, 
-    cache_5m: 0.30, 
-    cache_1h: 0.50, 
-    cache_hits: 0.03 
+  'claude-3-haiku-20240307': {
+    input: 0.25,
+    output: 1.25,
+    cache_5m: 0.30,
+    cache_1h: 0.50,
+    cache_hits: 0.03
+  },
+  // OpenAI models
+  'gpt-4o': {
+    input: 5,
+    output: 15,
+    cache_5m: 0,
+    cache_1h: 0,
+    cache_hits: 0
+  },
+  'gpt-4-turbo': {
+    input: 10,
+    output: 30,
+    cache_5m: 0,
+    cache_1h: 0,
+    cache_hits: 0
+  },
+  'gpt-3.5-turbo': {
+    input: 0.5,
+    output: 1.5,
+    cache_5m: 0,
+    cache_1h: 0,
+    cache_hits: 0
   },
   // Default fallback pricing (use Sonnet 3.7 rates)
   'default': { 
@@ -141,7 +173,7 @@ function calculateCost(
   return inputCost + outputCost + cacheCost;
 }
 
-export class AnthropicService {
+export class AnthropicService implements AIService {
   private client: Anthropic | null = null;
   private apiKey: string | null = null;
 
@@ -415,3 +447,195 @@ Your response must contain ONLY valid CSS rules and nothing else.`;
 }
 
 export const anthropicService = new AnthropicService();
+
+export class OpenAIService implements AIService {
+  private apiKey: string | null = null;
+  private uploads: Record<string, string> = {};
+
+  async initialize(): Promise<boolean> {
+    try {
+      const result = await chrome.storage.sync.get(['openaiApiKey']);
+      const apiKey = result.openaiApiKey;
+      if (!apiKey) {
+        throw new Error('API key not found');
+      }
+      this.apiKey = apiKey;
+      return true;
+    } catch (error) {
+      console.error('Failed to initialize OpenAI:', error);
+      return false;
+    }
+  }
+
+  async uploadHTML(html: string): Promise<FileUploadResponse> {
+    const id = Date.now().toString();
+    this.uploads[id] = html;
+    return { fileId: id };
+  }
+
+  async generateCSS(request: CSSGenerationRequest): Promise<CSSGenerationResponse> {
+    if (!this.apiKey) {
+      throw new Error('OpenAI not initialized');
+    }
+
+    const html = this.uploads[request.fileId];
+    if (!html) {
+      throw new Error('File not found');
+    }
+
+    const modelResult = await chrome.storage.sync.get(['selectedModel']);
+    const selectedModel = modelResult.selectedModel;
+
+    const systemPromptText = `You are a CSS expert. Given an HTML page and a user request, generate CSS rules that will apply the requested changes to the page.
+
+CRITICAL: Respond with CSS rules ONLY. Do not include any explanations, descriptions, or text outside of CSS rules.`;
+
+    const body = {
+      model: selectedModel,
+      messages: [
+        { role: 'system', content: systemPromptText },
+        { role: 'user', content: `HTML:\n${html}\n\n${request.prompt}` }
+      ],
+      max_tokens: 1024
+    };
+
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.apiKey}`
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!resp.ok) {
+      throw new Error(`OpenAI error: ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    const text: string = data.choices[0].message.content || '';
+
+    let cleanCSS = text.trim();
+    cleanCSS = cleanCSS.replace(/^```css\s*/gm, '');
+    cleanCSS = cleanCSS.replace(/^```\s*/gm, '');
+    cleanCSS = cleanCSS.replace(/```$/gm, '');
+
+    const lines = cleanCSS.split('\n');
+    let startIndex = -1;
+    let endIndex = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line.includes('{') || line.match(/^[a-zA-Z0-9\s\-_#.,>+~\[\]:()@]+\s*{?/) && (line.includes(':') || line.includes('{'))) {
+        startIndex = i;
+        break;
+      }
+    }
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (line.includes('}')) {
+        endIndex = i;
+        break;
+      }
+    }
+    if (startIndex !== -1 && endIndex !== -1 && startIndex <= endIndex) {
+      const cssLines = lines.slice(startIndex, endIndex + 1);
+      cleanCSS = cssLines.join('\n').trim();
+    }
+
+    const usage = {
+      input_tokens: data.usage.prompt_tokens,
+      output_tokens: data.usage.completion_tokens,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      cache_creation: null
+    };
+
+    const cost = calculateCost(selectedModel, usage);
+    await this.trackUsage(selectedModel, usage, cost);
+
+    return {
+      css: cleanCSS.trim(),
+      usage: { ...usage, cost }
+    };
+  }
+
+  async getAvailableModels(): Promise<Model[]> {
+    return [
+      { id: 'gpt-4o', display_name: 'GPT-4o', type: 'model' },
+      { id: 'gpt-4-turbo', display_name: 'GPT-4 Turbo', type: 'model' },
+      { id: 'gpt-3.5-turbo', display_name: 'GPT-3.5 Turbo', type: 'model' }
+    ];
+  }
+
+  async deleteFile(fileId: string): Promise<void> {
+    delete this.uploads[fileId];
+  }
+
+  async trackUsage(model: string, usage: any, cost: number): Promise<void> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const storageKey = `pagemagic_usage_${today}`;
+      const result = await chrome.storage.local.get([storageKey, 'pagemagic_total_usage']);
+      const dailyUsage = result[storageKey] || { requests: 0, totalCost: 0, models: {} };
+      const totalUsage = result.pagemagic_total_usage || { totalCost: 0, totalRequests: 0, models: {} };
+
+      dailyUsage.requests += 1;
+      dailyUsage.totalCost += cost;
+
+      if (!dailyUsage.models[model]) {
+        dailyUsage.models[model] = { requests: 0, cost: 0, tokens: { input: 0, output: 0 } };
+      }
+      dailyUsage.models[model].requests += 1;
+      dailyUsage.models[model].cost += cost;
+      dailyUsage.models[model].tokens.input += usage.input_tokens;
+      dailyUsage.models[model].tokens.output += usage.output_tokens;
+
+      totalUsage.totalCost += cost;
+      totalUsage.totalRequests += 1;
+
+      if (!totalUsage.models[model]) {
+        totalUsage.models[model] = { requests: 0, cost: 0, tokens: { input: 0, output: 0 } };
+      }
+      totalUsage.models[model].requests += 1;
+      totalUsage.models[model].cost += cost;
+      totalUsage.models[model].tokens.input += usage.input_tokens;
+      totalUsage.models[model].tokens.output += usage.output_tokens;
+
+      await chrome.storage.local.set({
+        [storageKey]: dailyUsage,
+        pagemagic_total_usage: totalUsage
+      });
+    } catch (error) {
+      console.warn('Failed to track usage:', error);
+    }
+  }
+
+  async getTotalUsage(): Promise<{ totalCost: number; totalRequests: number; models: any }> {
+    try {
+      const result = await chrome.storage.local.get(['pagemagic_total_usage']);
+      return result.pagemagic_total_usage || { totalCost: 0, totalRequests: 0, models: {} };
+    } catch (error) {
+      console.warn('Failed to get total usage:', error);
+      return { totalCost: 0, totalRequests: 0, models: {} };
+    }
+  }
+
+  async getDailyUsage(date?: string): Promise<any> {
+    try {
+      const targetDate = date || new Date().toISOString().split('T')[0];
+      const storageKey = `pagemagic_usage_${targetDate}`;
+      const result = await chrome.storage.local.get([storageKey]);
+      return result[storageKey] || { requests: 0, totalCost: 0, models: {} };
+    } catch (error) {
+      console.warn('Failed to get daily usage:', error);
+      return { requests: 0, totalCost: 0, models: {} };
+    }
+  }
+}
+
+export const openAIService = new OpenAIService();
+
+export async function getAIService(): Promise<AIService> {
+  const result = await chrome.storage.sync.get(['apiProvider']);
+  return result.apiProvider === 'openai' ? openAIService : anthropicService;
+}
