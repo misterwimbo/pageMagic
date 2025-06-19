@@ -1,0 +1,22 @@
+{
+  "name": "pagemagic",
+  "version": "1.0.0",
+  "description": "Page Magic Chrome Extension",
+  "private": true,
+  "scripts": {
+    "build": "vite build",
+    "watch": "vite build --watch",
+    "dev": "vite build --watch",
+    "zip": "npm run build && zip -r pagemagic.zip manifest.json dist/ icons/ popup.html popup.css settings.html settings.css"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.270",
+    "@types/node": "^22.15.29",
+    "terser": "^5.40.0",
+    "typescript": "^5.0.0",
+    "vite": "^6.3.5"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0"
+  }
+}

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+    <h1 style="margin: 0; font-size: 18px;">Page Magic</h1>
+    <a id="settings-link" href="#" style="font-size: 12px; color: #1976d2; text-decoration: none; padding: 4px 8px; border: 1px solid #1976d2; border-radius: 3px;">Settings</a>
+  </div>
+  
+  <div class="form-group">
+    <label for="prompt-input">Customize this page:</label>
+    <textarea id="prompt-input" placeholder="e.g., reduce font size, hide sidebar, change background color..."></textarea>
+    <div class="hint">Press ⌘+Enter to apply changes</div>
+  </div>
+
+  <div class="form-group" style="margin-bottom: 12px;">
+    <label style="display: flex; align-items: center; font-size: 11px; gap: 6px; margin-bottom: 0;">
+      <input type="checkbox" id="domain-wide" style="margin: 0;">
+      <span>Apply to entire domain</span>
+    </label>
+    <div class="hint" style="margin-top: 2px;">When checked, changes apply to all pages on this domain</div>
+  </div>
+  
+  <div class="button-row">
+    <button id="apply-changes">Apply Changes</button>
+    <div id="status" style="font-size: 12px; display: none;"></div>
+  </div>
+  
+  <div id="history-section" style="margin-top: 16px; display: none;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+      <h3 style="font-size: 14px; margin: 0; color: #666;">Applied Changes</h3>
+      <div style="display: flex; gap: 8px;">
+        <button id="disable-all" class="history-disable">Disable All</button>
+        <button id="remove-all" class="history-delete">Remove All</button>
+      </div>
+    </div>
+    <div id="history-list"></div>
+  </div>
+  <script type="module" src="dist/popup.js"></script>
+</body>
+</html>
