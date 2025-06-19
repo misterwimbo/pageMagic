@@ -63,25 +63,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (initialized) {
         const models = await aiService.getAvailableModels();
-          populateModelSelect(models);
+        populateModelSelect(models);
 
-          // Store model lookup table for usage display
-          const modelLookup: Record<string, string> = {};
-          models.forEach(model => {
-            modelLookup[model.id] = model.display_name;
-          });
-          await chrome.storage.local.set({ pagemagic_model_lookup: modelLookup });
-          result[keyField] = currentKey;
-          result.apiProvider = providerVal;
+        // Store model lookup table for usage display
+        const modelLookup: Record<string, string> = {};
+        models.forEach(model => {
+          modelLookup[model.id] = model.display_name;
+        });
+        await chrome.storage.local.set({ pagemagic_model_lookup: modelLookup });
 
-          // Set selected model
-          if (result.selectedModel) {
-            modelSelect.value = result.selectedModel;
-          } else if (models.length > 0) {
-            modelSelect.value = models[0].id; // Default to first available model
-          }
-          modelSelect.disabled = false;
-          testBtn.disabled = false;
+        // Set selected model
+        if (result.selectedModel) {
+          modelSelect.value = result.selectedModel;
+        } else if (models.length > 0) {
+          modelSelect.value = models[0].id; // Default to first available model
+        }
+        modelSelect.disabled = false;
+        testBtn.disabled = false;
         return;
       }
 
