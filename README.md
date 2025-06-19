@@ -3,7 +3,7 @@
 A Chrome extension that uses AI to customize the appearance of any web page.
 
 > [!NOTE]
-> Bring Your Own API Key (BYOK): Page Magic uses the Anthropic API to do all the magic. You will need to provide your own API key to get started.
+> Bring Your Own API Key (BYOK): Page Magic supports both Anthropic and OpenAI APIs. You will need to provide your own API key to get started.
 
 ## Screenshots
 
@@ -11,7 +11,7 @@ A Chrome extension that uses AI to customize the appearance of any web page.
 Just tell Page Magic what you want to change and it will do it for you.
 
 ![Settings Panel](screenshots/settings.png)
-Add your Anthropic API key to get started, select the model you want to use, and see your API usage cost.
+Add your preferred API key to get started, select the provider and model you want to use, and see your API usage cost.
 
 ## Installation
 
@@ -25,7 +25,7 @@ You will need node.js installed to build the extension.
 6. Click "Load unpacked" and select the cloned repository
 5. You should see **Page Magic** in the list of extensions
 6. Click "Options" to configure your settings (you can also do this from the popup)
-7. In settings, add your Anthropic API key and select the model you want to use
+7. In settings, add your API key, choose the provider (Anthropic or OpenAI) and select the model you want to use
 8. Click "Save" to save your settings
 
 ## Usage
